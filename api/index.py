@@ -1,7 +1,8 @@
 # ============================================
 # 📱 FACEBOOK MESSENGER INTEGRATION
 # ============================================
-
+from fb_simple import fb
+app.register_blueprint(fb)
 FACEBOOK_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "dental_clinic_123")
 FACEBOOK_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "")
 
