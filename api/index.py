@@ -1,245 +1,168 @@
-"""
-🏥 مساعد عيادة الأسنان مع Qwen2.5-7B
-الإصدار الخفيف الذي يعمل على Vercel
-"""
+# ============================================
+# 📱 FACEBOOK MESSENGER INTEGRATION
+# ============================================
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import os
-import sys
-from datetime import datetime
+FACEBOOK_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "dental_clinic_123")
+FACEBOOK_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "")
 
-# إضافة المسار
-sys.path.append(os.path.dirname(__file__))
-
-app = Flask(__name__)
-CORS(app)
-
-# استيراد المكونات
-try:
-    from qwen_client import QwenClient
-    from dental_kb import DentalKnowledgeBase
-    print("✅ تم تحميل المكونات بنجاح")
-except ImportError as e:
-    print(f"⚠️ خطأ في استيراد المكونات: {e}")
-    # نسخ احتياطية
-    class QwenClient:
-        def generate(self, context, question):
-            return f"مرحباً! أنا مساعد العيادة. سؤالك: {question}"
+@app.route('/webhook', methods=['GET'])
+def verify_webhook():
+    """تحقق من Webhook - مطلوب من فيسبوك"""
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
+    challenge = request.args.get('hub.challenge')
     
-    class DentalKnowledgeBase:
-        def get_context_for_question(self, question):
-            return "معلومات العيادة: الهاتف 0112345678"
-
-# تهيئة المكونات
-qwen_client = QwenClient()
-knowledge_base = DentalKnowledgeBase()
-
-print("🚀 مساعد عيادة الأسنان مع Qwen2.5-7B جاهز!")
-
-@app.route('/')
-def home():
-    """الصفحة الرئيسية"""
-    return jsonify({
-        "service": "مساعد عيادة الأسنان الذكي 🤖",
-        "version": "2.5.0",
-        "model": "Qwen2.5-7B-Instruct (عبر API)",
-        "status": "🟢 جاهز",
-        "features": [
-            "ردود ذكية باستخدام Qwen2.5-7B",
-            "معرفة كاملة بالعيادة",
-            "لا حاجة لتحميل النموذج محلياً",
-            "مجاني 100%",
-            "يدعم جميع استفسارات المرضى"
-        ],
-        "endpoints": {
-            "/ask": "POST - طرح الأسئلة (مفضل)",
-            "/ask_get": "GET - طرح الأسئلة (بسيط)",
-            "/health": "GET - حالة النظام",
-            "/test": "GET - اختبار النظام",
-            "/info": "GET - معلومات عن العيادة"
-        },
-        "example_post": 'curl -X POST https://your-app.vercel.app/ask -H "Content-Type: application/json" -d \'{"question": "كيف أحجز موعد؟"}\'',
-        "example_get": 'curl "https://your-app.vercel.app/ask_get?q=كم سعر تنظيف الأسنان؟"'
-    })
-
-@app.route('/health', methods=['GET'])
-def health():
-    """فحص حالة النظام"""
-    return jsonify({
-        "status": "healthy",
-        "service": "dental-ai-qwen",
-        "model": "Qwen2.5-7B-Instruct",
-        "api_mode": "external",
-        "timestamp": datetime.now().isoformat()
-    })
-
-@app.route('/ask', methods=['POST'])
-def ask_question():
-    """طرح سؤال ذكي"""
+    if mode and token:
+        if mode == 'subscribe' and token == FACEBOOK_VERIFY_TOKEN:
+            print("✅ تم التحقق من Webhook بنجاح!")
+            return challenge
+        else:
+            return 'Verification token mismatch', 403
     
+    return 'Invalid request', 400
+
+@app.route('/webhook', methods=['POST'])
+def handle_webhook():
+    """معالجة رسائل Messenger"""
+    data = request.get_json()
+    
+    # تأكيد الاشتراك من فيسبوك
+    if data.get('object') == 'page':
+        for entry in data.get('entry', []):
+            for messaging_event in entry.get('messaging', []):
+                
+                # رسالة جديدة
+                if messaging_event.get('message'):
+                    sender_id = messaging_event['sender']['id']
+                    message_text = messaging_event['message'].get('text', '')
+                    
+                    if message_text:
+                        print(f"📱 رسالة من {sender_id}: {message_text}")
+                        
+                        # الحصول على الرد من المساعد
+                        answer = get_assistant_response(message_text)
+                        
+                        # إرسال الرد
+                        send_facebook_message(sender_id, answer)
+                
+                # رسالة مثل (Like, Share)
+                elif messaging_event.get('postback'):
+                    sender_id = messaging_event['sender']['id']
+                    payload = messaging_event['postback']['payload']
+                    print(f"📱 تفاعل من {sender_id}: {payload}")
+        
+        return 'EVENT_RECEIVED', 200
+    
+    return 'Not Found', 404
+
+def get_assistant_response(question):
+    """الحصول على رد من المساعد"""
     try:
-        # الحصول على البيانات
-        data = request.get_json()
-        
-        if not data or 'question' not in data:
-            return jsonify({
-                "success": False,
-                "error": "يرجى إرسال سؤال في حقل 'question'",
-                "example": '{"question": "كيف أحجز موعد؟"}'
-            }), 400
-        
-        question = data.get('question', '').strip()
-        
-        if not question:
-            return jsonify({
-                "success": False,
-                "error": "السؤال فارغ"
-            }), 400
-        
-        print(f"📥 سؤال: {question}")
-        
-        # 1. الحصول على السياق من قاعدة المعرفة
+        # استخدام نفس منطق الرد
         context = knowledge_base.get_context_for_question(question)
-        
-        # 2. البحث عن معلومات محددة
-        search_results = knowledge_base.search(question)
-        if search_results:
-            context += "\n\nمعلومات إضافية:\n" + "\n".join(search_results)
-        
-        # 3. توليد الرد باستخدام Qwen
-        print("🧠 جارٍ توليد الرد باستخدام Qwen2.5...")
-        start_time = datetime.now()
-        
         answer = qwen_client.generate(context, question)
         
-        processing_time = (datetime.now() - start_time).total_seconds()
+        # تقصير الرد إذا كان طويلاً
+        if len(answer) > 600:
+            sentences = answer.split('.')
+            answer = '. '.join(sentences[:3]) + '.'
         
-        print(f"✅ تم الرد في {processing_time:.2f} ثانية")
-        
-        # 4. إرجاع النتيجة
-        return jsonify({
-            "success": True,
-            "question": question,
-            "answer": answer,
-            "context_length": len(context),
-            "processing_time": round(processing_time, 2),
-            "model": "Qwen2.5-7B-Instruct",
-            "timestamp": datetime.now().isoformat()
-        })
-        
+        return answer
+    
     except Exception as e:
-        print(f"❌ خطأ: {e}")
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "message": "حدث خطأ في المعالجة. يرجى المحاولة مرة أخرى."
-        }), 500
+        print(f"❌ خطأ في توليد الرد: {e}")
+        return "مرحباً! أنا مساعد عيادة الأسنان. للأسعار والحجز: 0112345678"
 
-@app.route('/ask_get', methods=['GET'])
-def ask_question_get():
-    """طرح سؤال عبر GET"""
+def send_facebook_message(recipient_id, message_text):
+    """إرسال رسالة إلى مستخدم فيسبوك"""
+    if not FACEBOOK_PAGE_TOKEN:
+        print("⚠️ FB_PAGE_TOKEN غير مضبوط")
+        return
     
-    question = request.args.get('q', '').strip()
+    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={FACEBOOK_PAGE_TOKEN}"
     
-    if not question:
-        return jsonify({
-            "success": False,
-            "error": "يرجى إضافة السؤال في المعلمة q",
-            "example": "/ask_get?q=كيف أحجز موعد؟"
-        })
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {"text": message_text},
+        "messaging_type": "RESPONSE"
+    }
+    
+    headers = {'Content-Type': 'application/json'}
     
     try:
-        # الحصول على السياق
-        context = knowledge_base.get_context_for_question(question)
+        response = requests.post(url, json=payload, headers=headers)
         
-        # توليد الرد
-        answer = qwen_client.generate(context, question)
-        
-        return jsonify({
-            "success": True,
-            "question": question,
-            "answer": answer,
-            "model": "Qwen2.5-7B-Instruct"
-        })
-        
+        if response.status_code == 200:
+            print(f"✅ تم إرسال الرد إلى {recipient_id}")
+        else:
+            print(f"❌ خطأ في إرسال الرسالة: {response.status_code}")
+            print(response.json())
+    
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        })
+        print(f"❌ خطأ في الاتصال: {e}")
 
-@app.route('/test', methods=['GET'])
-def test():
-    """اختبار النظام"""
+# إضافة زر ابدأ للفيسبوك
+@app.route('/setup_fb_profile', methods=['GET'])
+def setup_facebook_profile():
+    """إعداد صفحة فيسبوك مع زر ابدأ"""
     
-    test_cases = [
-        "مرحبا",
-        "كيف أحجز موعد في العيادة؟",
-        "كم تكلفة تنظيف الأسنان؟",
-        "أين تقع عيادتكم؟",
-        "ما هي أوقات الدوام؟",
-        "عندي ألم شديد في الضرس",
-        "هل تقدمون خدمة تقويم الأسنان؟",
-        "ماذا أفعل في حالة كسر السن؟",
-        "هل تعالجون الأطفال؟",
-        "ما هي طرق الدفع المتاحة؟"
-    ]
+    page_token = os.environ.get("FB_PAGE_TOKEN", "")
     
-    results = []
+    if not page_token:
+        return jsonify({"error": "FB_PAGE_TOKEN غير مضبوط"}), 400
     
-    for question in test_cases:
-        try:
-            context = knowledge_base.get_context_for_question(question)
-            answer = qwen_client.generate(context, question)
-            
-            results.append({
-                "question": question,
-                "answer_preview": answer[:100] + ("..." if len(answer) > 100 else ""),
-                "answer_length": len(answer),
-                "success": True
-            })
-        except Exception as e:
-            results.append({
-                "question": question,
-                "error": str(e),
-                "success": False
-            })
+    # 1. إعداد زر "Get Started"
+    get_started_url = f"https://graph.facebook.com/v18.0/me/messenger_profile?access_token={page_token}"
     
-    return jsonify({
-        "system": "Dental AI Assistant with Qwen2.5",
-        "total_tests": len(test_cases),
-        "passed": sum(1 for r in results if r['success']),
-        "results": results
-    })
-
-@app.route('/info', methods=['GET'])
-def clinic_info():
-    """معلومات عن العيادة"""
+    get_started_payload = {
+        "get_started": {"payload": "GET_STARTED"}
+    }
     
-    clinic = knowledge_base.data["clinic"]
-    hours = knowledge_base.data["working_hours"]
+    # 2. إعداد القائمة المستمرة
+    persistent_menu_url = f"https://graph.facebook.com/v18.0/me/messenger_profile?access_token={page_token}"
     
-    return jsonify({
-        "success": True,
-        "clinic": {
-            "name": clinic["name"],
-            "address": clinic["address"],
-            "contact": {
-                "phone": clinic["phone"],
-                "whatsapp": clinic["whatsapp"],
-                "email": clinic["email"],
-                "website": clinic["website"]
+    persistent_menu_payload = {
+        "persistent_menu": [
+            {
+                "locale": "default",
+                "composer_input_disabled": False,
+                "call_to_actions": [
+                    {
+                        "type": "postback",
+                        "title": "📅 حجز موعد",
+                        "payload": "BOOK_APPOINTMENT"
+                    },
+                    {
+                        "type": "postback",
+                        "title": "💰 الأسعار",
+                        "payload": "PRICES"
+                    },
+                    {
+                        "type": "postback",
+                        "title": "📍 العنوان",
+                        "payload": "LOCATION"
+                    },
+                    {
+                        "type": "web_url",
+                        "title": "🌐 الموقع الإلكتروني",
+                        "url": "https://www.dental-clinic.com"
+                    }
+                ]
             }
-        },
-        "working_hours": hours,
-        "emergency": clinic["emergency_phone"]
-    })
-
-# نقطة الدخول لـ Vercel
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    print(f"🌐 التشغيل على المنفذ {port}")
-    print(f"🤖 النموذج: Qwen2.5-7B-Instruct")
-    print(f"🔧 الوضع: API External")
-    app.run(host='0.0.0.0', port=port, debug=False)
+        ]
+    }
+    
+    try:
+        # إرسال طلبات الإعداد
+        response1 = requests.post(get_started_url, json=get_started_payload)
+        response2 = requests.post(persistent_menu_url, json=persistent_menu_payload)
+        
+        return jsonify({
+            "success": True,
+            "get_started": response1.status_code == 200,
+            "persistent_menu": response2.status_code == 200,
+            "message": "تم إعداد صفحة فيسبوك بنجاح!"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
