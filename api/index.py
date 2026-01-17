@@ -17,7 +17,7 @@ print("🚀 Starting Dental AI Assistant with Facebook Messenger...")
 FB_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "astra_dental_bot_2024")
 
 # 2. Page Access Token (ستأخذه من Facebook Developers)
-FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "")
+FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "EAAKqctOyqecBQRvAeGXRkb11K2AzRMelttUC2zVL7FdS7VFAVhVT1anKKV9ACkfZCXr2UzpAaILw6rN65BUqmDjaZC0tM81wiOtQ5ZCZBtHMwe0qm678azp1PC6bXxsYYOHfLLZCJS5ShMKsgRZAxjbk6ZAT8uS275lWrYP7s3ST6faoseYCwMzmxsZBeDOZBplnn3ZAa6ygZDZD")
 
 # 3. App Secret (للتحقق من التوقيع - أمان إضافي)
 FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
