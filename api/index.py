@@ -6,67 +6,43 @@ import requests
 import json
 import hashlib
 import hmac
-from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
 
-print("🚀 Starting Training Center Enrollment Assistant...")
+print("🚀 Starting Dental AI Assistant with Facebook Messenger...")
 
 # ===================== إعدادات فيسبوك =====================
-FB_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "training_bot_2024")
+# 1. Verify Token (تختاره أنت)
+FB_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "astra_dental_bot_2024")
+
+# 2. Page Access Token (ستأخذه من Facebook Developers)
 FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "EAAKqctOyqecBQRvAeGXRkb11K2AzRMelttUC2zVL7FdS7VFAVhVT1anKKV9ACkfZCXr2UzpAaILw6rN65BUqmDjaZC0tM81wiOtQ5ZCZBtHMwe0qm678azp1PC6bXxsYYOHfLLZCJS5ShMKsgRZAxjbk6ZAT8uS275lWrYP7s3ST6faoseYCwMzmxsZBeDOZBplnn3ZAa6ygZDZD")
+
+# 3. App Secret (للتحقق من التوقيع - أمان إضافي)
 FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
-
-# ===================== بيانات مركز التدريب =====================
-TRAINING_COURSES = {
-    "python": {
-        "name": "برمجة بايثون للمبتدئين",
-        "description": "تعلم أساسيات برمجة Python من الصفر",
-        "price": "500 ريال",
-        "duration": "4 أسابيع",
-        "schedule": ["الاثنين والأربعاء 6-8 مساءً", "السبت 10 صباحًا - 2 ظهرًا"]
-    },
-    "web": {
-        "name": "تطوير الويب الشامل",
-        "description": "HTML, CSS, JavaScript و React",
-        "price": "800 ريال",
-        "duration": "6 أسابيع",
-        "schedule": ["الثلاثاء والخميس 7-9 مساءً"]
-    },
-    "data": {
-        "name": "تحليل البيانات",
-        "description": "تعلم Python، Pandas، وتصور البيانات",
-        "price": "700 ريال",
-        "duration": "5 أسابيع",
-        "schedule": ["الأحد والثلاثاء 5-7 مساءً"]
-    },
-    "design": {
-        "name": "تصميم الجرافيك",
-        "description": "Photoshop، Illustrator وتصميم الشعارات",
-        "price": "600 ريال",
-        "duration": "4 أسابيع",
-        "schedule": ["الاثنين والأربعاء 4-6 مساءً"]
-    }
-}
-
-# ===================== تخزين بيانات المستخدمين =====================
-user_sessions = {}
 
 # ===================== المساعد الأساسي =====================
 @app.route('/')
 def home():
     return jsonify({
-        "service": "مساعد تسجيل مراكز التدريب 🤖",
+        "service": "مساعد عيادة الأسنان الذكي 🤖",
         "status": "🟢 جاهز مع فيسبوك",
-        "version": "1.0.0",
-        "courses_available": list(TRAINING_COURSES.keys()),
+        "version": "2.0.0",
+        "messenger": "✅ متصل",
+        "verify_token": FB_VERIFY_TOKEN,
         "endpoints": {
-            "/": "GET - معلومات التطبيق",
             "/health": "GET - حالة النظام",
+            "/ask": "POST - طرح الأسئلة",
+            "/ask_get": "GET - طرح الأسئلة (بسيط)",
             "/webhook": "GET/POST - فيسبوك Messenger",
-            "/courses": "GET - عرض الكورسات",
-            "/enrollments": "GET - عرض التسجيلات"
+            "/fb_test": "GET - اختبار اتصال فيسبوك",
+            "/setup_fb": "GET - إعداد صفحة فيسبوك"
+        },
+        "facebook_setup": {
+            "webhook_url": "https://astramind-nine.vercel.app/webhook",
+            "verify_token": FB_VERIFY_TOKEN,
+            "steps": "1. أضف Webhook في Facebook Developers 2. أدخل Verify Token 3. اشترك في الأحداث"
         }
     })
 
@@ -74,209 +50,139 @@ def home():
 def health():
     return jsonify({
         "status": "healthy",
+        "service": "dental-ai-messenger",
         "facebook_ready": bool(FB_PAGE_TOKEN),
-        "courses_count": len(TRAINING_COURSES)
+        "webhook_url": "https://astramind-nine.vercel.app/webhook"
     })
 
-@app.route('/courses', methods=['GET'])
-def get_courses():
-    """عرض جميع الكورسات المتاحة"""
+@app.route('/ask', methods=['POST'])
+def ask():
+    try:
+        data = request.get_json()
+
+        if not data or 'question' not in data:
+            return jsonify({"error": "يرجى إرسال سؤال في حقل 'question'"}), 400
+
+        question = data['question'].strip()
+        answer = generate_response(question)
+
+        return jsonify({
+            "success": True,
+            "question": question,
+            "answer": answer,
+            "model": "Dental Assistant AI"
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/ask_get', methods=['GET'])
+def ask_get():
+    question = request.args.get('q', '').strip()
+
+    if not question:
+        return jsonify({"error": "استخدم ?q=سؤالك"}), 400
+
+    answer = generate_response(question)
+
     return jsonify({
-        "courses": TRAINING_COURSES,
-        "count": len(TRAINING_COURSES)
+        "success": True,
+        "question": question,
+        "answer": answer
     })
 
-@app.route('/enrollments', methods=['GET'])
-def get_enrollments():
-    """عرض التسجيلات النشطة"""
-    active_sessions = {
-        user_id: data 
-        for user_id, data in user_sessions.items() 
-        if data.get('phone') and data.get('course')
+def generate_response(question):
+    """توليد رد ذكي - معدّل لمركز التدريب"""
+    question_lower = question.lower()
+
+    responses = {
+        'greeting': "مرحباً! 👋 أنا مساعد مركز التدريب الذكي. كيف يمكنني مساعدتك اليوم؟\n\nيمكنك معرفة:\n• الكورسات المتاحة 🎓\n• الجداول الزمنية 📅\n• الأسعار 💰\n• أو التسجيل مباشرة 💼",
+        
+        'courses': """📚 **الكورسات المتاحة:**
+🎯 برمجة بايثون للمبتدئين
+🎯 تطوير الويب الشامل
+🎯 تحليل البيانات
+🎯 تصميم الجرافيك
+
+لكل كورس تفاصيله وجدوله وسعره. أي كورس يهمك؟""",
+
+        'schedules': """📅 **الجداول الزمنية:**
+
+1. **برمجة بايثون:**
+   - الاثنين والأربعاء 6-8 مساءً
+   - السبت 10 صباحًا - 2 ظهرًا
+
+2. **تطوير الويب:**
+   - الثلاثاء والخميس 7-9 مساءً
+
+3. **تحليل البيانات:**
+   - الأحد والثلاثاء 5-7 مساءً
+
+4. **تصميم الجرافيك:**
+   - الاثنين والأربعاء 4-6 مساءً
+
+أي جدول يناسبك؟""",
+
+        'prices': """💰 **الأسعار:**
+
+• برمجة بايثون: 500 ريال
+• تطوير الويب: 800 ريال  
+• تحليل البيانات: 700 ريال
+• تصميم الجرافيك: 600 ريال
+
+🎁 **خصومات متاحة:**
+- خصم 10% للتسجيل المبكر
+- خصم 15% للمجموعات (3+ أشخاص)
+- دفعات شهرية متاحة""",
+
+        'registration': "رائع! للتسجيل في أي كورس، أحتاج إلى:\n\n1. اسم الكورس الذي تريده\n2. رقم هاتفك للتواصل\n\nابدأ بكتابة اسم الكورس...",
+        
+        'contact': "📞 **للتواصل مع المركز:**\n• الهاتف: 0123456789\n• الواتساب: 0123456789\n• البريد: info@training-center.com\n• الموقع: www.training-center.com",
+        
+        'default': """مرحباً! 🤖 أنا مساعد مركز التدريب.
+
+يمكنني مساعدتك في:
+• عرض الكورسات المتاحة 🎓
+• معرفة الجداول الزمنية 📅  
+• استعلامات الأسعار 💰
+• عملية التسجيل 💼
+• معلومات التواصل 📞
+
+ماذا تريد أن تعرف؟ 😊"""
     }
-    return jsonify({
-        "enrollments": active_sessions,
-        "count": len(active_sessions)
-    })
 
-def generate_response(user_id, message_text):
-    """توليد رد ذكي بناءً على حالة المحادثة"""
-    user_session = user_sessions.get(user_id, {})
-    
-    # تحويل الرسالة إلى صغيرة
-    message_lower = message_text.lower().strip()
-    
-    # 1. إذا كان المستخدم يبدأ محادثة جديدة
-    if any(word in message_lower for word in ['مرحبا', 'اهلا', 'السلام', 'اهلين', 'بداية']):
-        user_sessions[user_id] = {"step": "welcome"}
-        return "مرحباً بك في مركز التدريب! 👋\n\nماذا تريد معرفته؟\n\n• الكورسات المتاحة 🎯\n• الجداول الزمنية 📅\n• الأسعار 💰\n\nأو يمكنك التسجيل مباشرة في كورس! 💼"
-    
-    # 2. إذا سأل عن الكورسات المتاحة
-    elif any(word in message_lower for word in ['كورسات', 'دورات', 'متاح', 'عرض', 'courses', 'available']):
-        return get_courses_list()
-    
-    # 3. إذا سأل عن الجداول
-    elif any(word in message_lower for word in ['جدول', 'مواعيد', 'اوقات', 'schedule', 'موعد']):
-        return get_schedules_list()
-    
-    # 4. إذا سأل عن الأسعار
-    elif any(word in message_lower for word in ['سعر', 'ثمن', 'رسوم', 'تكلفة', 'price', 'كم']):
-        return get_prices_list()
-    
-    # 5. إذا كان يريد التسجيل
-    elif any(word in message_lower for word in ['تسجيل', 'سجل', 'انضم', 'اريد', 'أريد', 'سجلني', 'enroll']):
-        user_sessions[user_id] = {"step": "ask_course"}
-        return "ممتاز! أي كورس تريد التسجيل فيه؟\n\n" + get_courses_list()
-    
-    # 6. إذا كان في مرحلة اختيار الكورس
-    elif user_session.get('step') == 'ask_course':
-        course_key = get_course_key(message_text)
-        if course_key:
-            user_sessions[user_id] = {
-                "step": "ask_phone",
-                "course": course_key,
-                "course_name": TRAINING_COURSES[course_key]['name']
-            }
-            return f"رائع! اخترت '{TRAINING_COURSES[course_key]['name']}' 🌟\n\nالآن، ما هو رقم هاتفك للتواصل؟ 📱"
-        else:
-            return "الكورس غير معروف. يرجى اختيار كورس من القائمة:\n\n" + get_courses_list()
-    
-    # 7. إذا كان في مرحلة طلب رقم الهاتف
-    elif user_session.get('step') == 'ask_phone':
-        phone = extract_phone_number(message_text)
-        if phone:
-            course_key = user_session.get('course')
-            course_name = TRAINING_COURSES[course_key]['name']
-            
-            user_sessions[user_id] = {
-                **user_session,
-                "phone": phone,
-                "step": "completed",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            # إرسال تأكيد للمسؤول
-            notify_admin(user_id, course_name, phone)
-            
-            return "✅ تم استلام بياناتك!\n\n📞 فريقنا سيتواصل معك خلال 24 ساعة على الرقم: " + phone + "\n\nبخصوص كورس: " + course_name + "\n\nشكراً لثقتك بنا! 🙏"
-        else:
-            return "⚠️ يرجى إدخال رقم هاتف صحيح (مثال: 05XXXXXXXX أو 5XXXXXXXX)"
-    
-    # 8. البحث عن كورس محدد
-    elif any(word in message_lower for word in ['بايثون', 'python', 'ويب', 'web', 'بيانات', 'data', 'تصميم', 'design']):
-        course_key = get_course_key(message_text)
-        if course_key:
-            course = TRAINING_COURSES[course_key]
-            return format_course_details(course_key, course)
-        else:
-            return "الكورس غير معروف. هذه الكورسات المتاحة:\n\n" + get_courses_list()
-    
-    # 9. رد افتراضي
+    # تحليل السؤال
+    if any(word in question_lower for word in ['مرحبا', 'اهلا', 'السلام', 'صباح', 'مساء', 'بداية', 'هلا']):
+        return responses['greeting']
+
+    elif any(word in question_lower for word in ['كورس', 'دورة', 'متاح', 'عرض', 'courses', 'برمجة', 'تطوير', 'تصميم', 'بيانات']):
+        return responses['courses']
+
+    elif any(word in question_lower for word in ['جدول', 'مواعيد', 'اوقات', 'schedule', 'موعد', 'تاريخ', 'يبدأ', 'ينتهي']):
+        return responses['schedules']
+
+    elif any(word in question_lower for word in ['سعر', 'ثمن', 'رسوم', 'تكلفة', 'price', 'كم', 'تخفيض', 'خصم']):
+        return responses['prices']
+
+    elif any(word in question_lower for word in ['تسجيل', 'سجل', 'انضم', 'اريد', 'أريد', 'سجلني', 'enroll', 'اشتراك']):
+        return responses['registration']
+
+    elif any(word in question_lower for word in ['اتصال', 'تواصل', 'هاتف', 'رقم', 'contact', 'بريد', 'ايميل', 'عنوان']):
+        return responses['contact']
+
     else:
-        return "مرحباً! 👋 أنا مساعد التسجيل في مركز التدريب.\n\nأستطيع مساعدتك في:\n• عرض الكورسات المتاحة 🎓\n• الجداول الزمنية 📅\n• معرفة الأسعار 💰\n• التسجيل في الكورس 💼\n\nماذا تريد أن تعرف؟ 😊"
-
-def get_courses_list():
-    """تنسيق قائمة الكورسات"""
-    courses_text = "📚 **الكورسات المتاحة:**\n\n"
-    for key, course in TRAINING_COURSES.items():
-        courses_text += f"🎯 **{course['name']}**\n"
-        courses_text += f"   📝 {course['description']}\n"
-        courses_text += f"   ⏰ {course['duration']}\n"
-        courses_text += f"   💰 {course['price']}\n\n"
-    
-    courses_text += "للتسجيل، اكتب 'اريد التسجيل' أو 'سجلني'"
-    return courses_text
-
-def get_schedules_list():
-    """تنسيق قائمة الجداول"""
-    schedules_text = "📅 **الجداول الزمنية:**\n\n"
-    for key, course in TRAINING_COURSES.items():
-        schedules_text += f"🎯 **{course['name']}:**\n"
-        for schedule in course['schedule']:
-            schedules_text += f"   ⏰ {schedule}\n"
-        schedules_text += "\n"
-    return schedules_text
-
-def get_prices_list():
-    """تنسيق قائمة الأسعار"""
-    prices_text = "💰 **الأسعار:**\n\n"
-    for key, course in TRAINING_COURSES.items():
-        prices_text += f"🎯 **{course['name']}:** {course['price']}\n"
-        prices_text += f"   ⏰ {course['duration']}\n\n"
-    
-    prices_text += "🔹 خصم 10% للتسجيل المبكر\n🔹 خصم 15% للمجموعات (3 أشخاص فأكثر)"
-    return prices_text
-
-def format_course_details(key, course):
-    """تنسيق تفاصيل كورس معين"""
-    text = f"🎯 **{course['name']}**\n\n"
-    text += f"📝 **الوصف:** {course['description']}\n\n"
-    text += f"💰 **السعر:** {course['price']}\n"
-    text += f"⏰ **المدة:** {course['duration']}\n\n"
-    text += "📅 **الجداول المتاحة:**\n"
-    for schedule in course['schedule']:
-        text += f"• {schedule}\n"
-    text += f"\nللتسجيل في هذا الكورس، اكتب 'اريد التسجيل في {key}'"
-    return text
-
-def get_course_key(message):
-    """استخراج مفتاح الكورس من الرسالة"""
-    message_lower = message.lower()
-    
-    if any(word in message_lower for word in ['بايثون', 'python']):
-        return 'python'
-    elif any(word in message_lower for word in ['ويب', 'web', 'تطوير']):
-        return 'web'
-    elif any(word in message_lower for word in ['بيانات', 'data', 'تحليل']):
-        return 'data'
-    elif any(word in message_lower for word in ['تصميم', 'design', 'جرافيك']):
-        return 'design'
-    
-    # تحقق من الكلمات المفتاحية المباشرة
-    for key in TRAINING_COURSES.keys():
-        if key in message_lower:
-            return key
-    
-    return None
-
-def extract_phone_number(text):
-    """استخراج رقم الهاتف من النص"""
-    import re
-    
-    # إزالة جميع غير الأرقام
-    numbers = re.findall(r'\d+', text)
-    phone = ''.join(numbers)
-    
-    # تحقق من طول الرقم (عادة 9-10 أرقام للسعودية)
-    if 9 <= len(phone) <= 10:
-        # إذا بدأ بـ 0، أزله
-        if phone.startswith('0'):
-            phone = phone[1:]
-        return phone
-    elif len(phone) > 10:
-        # خذ أول 10 أرقام
-        return phone[:10]
-    
-    return None
-
-def notify_admin(user_id, course_name, phone):
-    """إرسال إشعار للمسؤول"""
-    print(f"📝 تسجيل جديد:")
-    print(f"   👤 المستخدم: {user_id}")
-    print(f"   🎯 الكورس: {course_name}")
-    print(f"   📞 الهاتف: {phone}")
-    print(f"   ⏰ الوقت: {datetime.now()}")
-    
-    # يمكنك إضافة إرسال بريد إلكتروني أو إشعار هنا
-    # أو حفظ في قاعدة بيانات
+        return responses['default']
 
 # ===================== فيسبوك Messenger =====================
 
 def verify_fb_signature(payload, signature):
-    """التحقق من توقيع فيسبوك"""
+    """التحقق من توقيع فيسبوك (لزيادة الأمان)"""
     if not FB_APP_SECRET or not signature:
-        return True
-    
+        return True  # تخطي إذا لم يتم تعيين App Secret
+
     expected_sig = hmac.new(
         FB_APP_SECRET.encode('utf-8'),
         payload,
@@ -287,7 +193,7 @@ def verify_fb_signature(payload, signature):
 
 @app.route('/webhook', methods=['GET'])
 def verify_webhook():
-    """التحقق من Webhook"""
+    """التحقق من Webhook - Facebook يرسل GET للتحقق"""
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
@@ -295,7 +201,7 @@ def verify_webhook():
     print(f"🔍 Facebook verification attempt: mode={mode}, token={token}")
 
     if mode == 'subscribe' and token == FB_VERIFY_TOKEN:
-        print(f"✅ Facebook webhook verified successfully!")
+        print(f"✅ Facebook webhook verified successfully! Token: {FB_VERIFY_TOKEN}")
         return challenge, 200
 
     print(f"❌ Verification failed. Expected: {FB_VERIFY_TOKEN}, Got: {token}")
@@ -305,6 +211,7 @@ def verify_webhook():
 def webhook():
     """استقبال رسائل Messenger"""
     try:
+        # التحقق من التوقيع (أمان)
         signature = request.headers.get('X-Hub-Signature', '')
         if not verify_fb_signature(request.data, signature):
             print("❌ Invalid Facebook signature")
@@ -312,45 +219,54 @@ def webhook():
 
         data = request.get_json()
 
+        # تأكد أن البيانات من صفحة فيسبوك
         if data.get('object') != 'page':
             return 'Not a page event', 404
 
         for entry in data.get('entry', []):
             for messaging_event in entry.get('messaging', []):
 
-                # رسالة نصية
+                # 1. رسالة نصية من مستخدم
                 if messaging_event.get('message'):
                     sender_id = messaging_event['sender']['id']
                     message_text = messaging_event['message'].get('text', '')
 
                     if message_text:
-                        print(f"📱 Message from {sender_id}: {message_text}")
-                        
-                        # توليد الرد
-                        response_text = generate_response(sender_id, message_text)
-                        
-                        # إرسال الرد
+                        print(f"📱 Facebook message from {sender_id}: {message_text}")
+
+                        # توليد الرد من المساعد
+                        response_text = generate_response(message_text)
+
+                        # إرسال الرد إلى المستخدم
                         send_facebook_message(sender_id, response_text)
 
-                # ضغط على زر
+                # 2. ضغط على زر (Postback)
                 elif messaging_event.get('postback'):
                     sender_id = messaging_event['sender']['id']
                     payload = messaging_event['postback']['payload']
 
-                    print(f"📱 Postback from {sender_id}: {payload}")
+                    print(f"📱 Facebook postback from {sender_id}: {payload}")
 
+                    # ردود خاصة للأزرار - معدّلة لمركز التدريب
                     postback_responses = {
-                        'GET_STARTED': "مرحباً بك في مركز التدريب! 🎓\n\nأنا مساعد التسجيل. كيف يمكنني مساعدتك اليوم؟\n\n• الكورسات المتاحة 🎯\n• الجداول الزمنية 📅\n• الأسعار 💰\n• التسجيل في كورس 💼",
-                        'COURSES': get_courses_list(),
-                        'SCHEDULES': get_schedules_list(),
-                        'PRICES': get_prices_list(),
-                        'ENROLL': "ممتاز! للتسجيل، اكتب اسم الكورس الذي تريده:\n\n" + get_courses_list()
+                        'GET_STARTED': "مرحباً بك في مركز التدريب! 👋\n\nأنا المساعد الذكي. اسألني عن:\n• الكورسات المتاحة 🎓\n• الجداول الزمنية 📅\n• الأسعار 💰\n• عملية التسجيل 💼",
+                        'BOOK_APPOINTMENT': "📝 للتسجيل في كورس:\n1. اختر الكورس المفضل\n2. أدخل رقم هاتفك\n3. فريقنا سيتواصل معك خلال 24 ساعة\n\nأي كورس يهمك؟",
+                        'ASK_PRICE': "💰 الأسعار:\n• برمجة بايثون: 500 ريال\n• تطوير الويب: 800 ريال\n• تحليل البيانات: 700 ريال\n• تصميم الجرافيك: 600 ريال\n\n🎁 خصومات متاحة!",
+                        'ASK_LOCATION': "📍 مركز التدريب:\n• العنوان: شارع التدريب، الرياض\n• 📞 الهاتف: 0123456789\n• 🕒 الأوقات: الأحد-الخميس 8 ص - 8 م\n• 📧 البريد: info@training-center.com"
                     }
 
                     response_text = postback_responses.get(payload, 
-                        "مرحباً! كيف يمكنني مساعدتك؟")
+                        "مرحباً! كيف يمكنني مساعدتك في مركز التدريب؟")
 
                     send_facebook_message(sender_id, response_text)
+
+                # 3. تأكيد تسليم الرسالة
+                elif messaging_event.get('delivery'):
+                    pass
+
+                # 4. قراءة الرسالة
+                elif messaging_event.get('read'):
+                    pass
 
         return 'EVENT_RECEIVED', 200
 
@@ -366,6 +282,7 @@ def send_facebook_message(recipient_id, message_text):
         print("⚠️ FB_PAGE_TOKEN not set. Cannot send message.")
         return None
 
+    # تقصير الرسالة إذا كانت طويلة جداً
     if len(message_text) > 2000:
         message_text = message_text[:1997] + "..."
 
@@ -395,11 +312,33 @@ def send_facebook_message(recipient_id, message_text):
             return True
         else:
             print(f"❌ Failed to send message: {response.status_code}")
+            print(f"Response: {response.text}")
             return False
 
     except Exception as e:
         print(f"❌ Error sending Facebook message: {e}")
         return False
+
+@app.route('/fb_test', methods=['GET'])
+def facebook_test():
+    """اختبار اتصال فيسبوك"""
+    return jsonify({
+        "facebook_integration": True,
+        "verify_token_set": bool(FB_VERIFY_TOKEN),
+        "page_token_set": bool(FB_PAGE_TOKEN),
+        "webhook_url": "https://astramind-nine.vercel.app/webhook",
+        "verify_token": FB_VERIFY_TOKEN,
+        "test_url": f"https://astramind-nine.vercel.app/webhook?hub.mode=subscribe&hub.verify_token={FB_VERIFY_TOKEN}&hub.challenge=123456",
+        "setup_instructions": [
+            "1. Go to Facebook Developers",
+            "2. Create App → Add Messenger",
+            f"3. Webhook URL: https://astramind-nine.vercel.app/webhook",
+            f"4. Verify Token: {FB_VERIFY_TOKEN}",
+            "5. Subscribe to: messages, messaging_postbacks",
+            "6. Generate Page Access Token",
+            "7. Add tokens to Vercel Environment Variables"
+        ]
+    })
 
 @app.route('/setup_fb', methods=['GET'])
 def setup_facebook():
@@ -407,13 +346,14 @@ def setup_facebook():
 
     if not FB_PAGE_TOKEN:
         return jsonify({
-            "error": "FB_PAGE_TOKEN is not set"
+            "error": "FB_PAGE_TOKEN is not set",
+            "solution": "Add FB_PAGE_TOKEN to Vercel Environment Variables"
         }), 400
 
     results = {}
 
     try:
-        # إعداد زر Get Started
+        # 1. إعداد زر Get Started
         get_started_url = "https://graph.facebook.com/v18.0/me/messenger_profile"
 
         get_started_payload = {
@@ -428,7 +368,7 @@ def setup_facebook():
         )
         results['get_started'] = response1.status_code == 200
 
-        # إعداد القائمة المستمرة
+        # 2. إعداد القائمة المستمرة
         menu_payload = {
             "persistent_menu": [
                 {
@@ -437,23 +377,18 @@ def setup_facebook():
                     "call_to_actions": [
                         {
                             "type": "postback",
-                            "title": "🎯 الكورسات المتاحة",
-                            "payload": "COURSES"
-                        },
-                        {
-                            "type": "postback",
-                            "title": "📅 الجداول الزمنية",
-                            "payload": "SCHEDULES"
+                            "title": "📚 الكورسات",
+                            "payload": "BOOK_APPOINTMENT"
                         },
                         {
                             "type": "postback",
                             "title": "💰 الأسعار",
-                            "payload": "PRICES"
+                            "payload": "ASK_PRICE"
                         },
                         {
                             "type": "postback",
-                            "title": "💼 التسجيل في كورس",
-                            "payload": "ENROLL"
+                            "title": "📍 المركز",
+                            "payload": "ASK_LOCATION"
                         }
                     ]
                 }
@@ -471,13 +406,13 @@ def setup_facebook():
             "success": True,
             "results": results,
             "message": "Facebook page setup completed!",
-            "instructions": [
-                "1. اذهب إلى Facebook Developers",
-                "2. أنشئ App وأضف Messenger",
-                "3. أضف Webhook URL: https://astramind-nine.vercel.app/webhook",
-                f"4. أدخل Verify Token: {FB_VERIFY_TOKEN}",
-                "5. اشترك في الأحداث: messages, messaging_postbacks",
-                "6. أرسل رسالة للصفحة للاختبار"
+            "next_steps": [
+                f"1. Open: https://astramind-nine.vercel.app/fb_test",
+                "2. Copy the Verify Token",
+                "3. Go to Facebook Developers → Webhook",
+                "4. Add the Webhook URL and Verify Token",
+                "5. Subscribe your page to events",
+                "6. Send a message to your Facebook page!"
             ]
         })
 
@@ -491,7 +426,8 @@ def setup_facebook():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     print(f"🌐 Server running on port {port}")
-    print(f"🎓 Training Center Enrollment Assistant")
-    print(f"📚 Courses available: {list(TRAINING_COURSES.keys())}")
+    print(f"🤖 Dental AI Assistant with Facebook Messenger")
+    print(f"🔑 Verify Token: {FB_VERIFY_TOKEN}")
     print(f"🔗 Webhook URL: https://astramind-nine.vercel.app/webhook")
+    print(f"📱 Test URL: https://astramind-nine.vercel.app/fb_test")
     app.run(host='0.0.0.0', port=port, debug=False)
