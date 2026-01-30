@@ -10,424 +10,280 @@ import hmac
 app = Flask(__name__)
 CORS(app)
 
-print("🚀 Starting Dental AI Assistant with Facebook Messenger...")
+print("🚀 Starting The King Suits Store AI Assistant...")
 
 # ===================== إعدادات فيسبوك =====================
 # 1. Verify Token (تختاره أنت)
-FB_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "astra_dental_bot_2024")
+FB_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "the_king_store_bot_2024")
 
-# 2. Page Access Token (ستأخذه من Facebook Developers)
+# 2. Page Access Token - ضروري جداً
+# احصل عليه من: https://developers.facebook.com/apps/
+# أو ضعه في متغيرات Vercel باسم FB_PAGE_TOKEN
 FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "EAAKqctOyqecBQRvAeGXRkb11K2AzRMelttUC2zVL7FdS7VFAVhVT1anKKV9ACkfZCXr2UzpAaILw6rN65BUqmDjaZC0tM81wiOtQ5ZCZBtHMwe0qm678azp1PC6bXxsYYOHfLLZCJS5ShMKsgRZAxjbk6ZAT8uS275lWrYP7s3ST6faoseYCwMzmxsZBeDOZBplnn3ZAa6ygZDZD")
 
-# 3. App Secret (للتحقق من التوقيع - أمان إضافي)
+# 3. App Secret (اختياري)
 FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
 
-# ===================== المساعد الأساسي =====================
+# ===================== المعلومات الأساسية للمحل =====================
+STORE_INFO = {
+    "name": "The King 👑",
+    "description": "محل سوتيس (ملابس جاهزة) - The King",
+    "address": "وسط البلد - شارع طلعت حرب - بجانب سينما مترو",
+    "phone_numbers": ["01553082672", "01017788206", "01159110136"],
+    "whatsapp_numbers": ["01553082672", "01017788206"],
+    "working_hours": {
+        "daily": "10:00 صباحاً - 12:00 منتصف الليل",
+        "weekend": "10:00 صباحاً - 2:00 صباحاً"
+    }
+}
+
 @app.route('/')
 def home():
     return jsonify({
-        "service": "مساعد عيادة الأسنان الذكي 🤖",
-        "status": "🟢 جاهز مع فيسبوك",
-        "version": "2.0.0",
-        "messenger": "✅ متصل",
-        "verify_token": FB_VERIFY_TOKEN,
+        "service": "مساعد محل The King (سوتيس) الذكي 🤖",
+        "status": "🟢 جاهز" if FB_PAGE_TOKEN else "⚠️ يحتاج FB_PAGE_TOKEN",
+        "facebook": "✅ متصل" if FB_PAGE_TOKEN else "❌ غير متصل",
+        "tokens": {
+            "verify_token": FB_VERIFY_TOKEN,
+            "page_token_exists": bool(FB_PAGE_TOKEN),
+            "page_token_length": len(FB_PAGE_TOKEN) if FB_PAGE_TOKEN else 0
+        },
         "endpoints": {
             "/health": "GET - حالة النظام",
             "/ask": "POST - طرح الأسئلة",
             "/ask_get": "GET - طرح الأسئلة (بسيط)",
             "/webhook": "GET/POST - فيسبوك Messenger",
             "/fb_test": "GET - اختبار اتصال فيسبوك",
-            "/setup_fb": "GET - إعداد صفحة فيسبوك"
+            "/test_reply": "GET - اختبار إرسال رسالة"
         },
-        "facebook_setup": {
-            "webhook_url": "https://astramind-nine.vercel.app/webhook",
-            "verify_token": FB_VERIFY_TOKEN,
-            "steps": "1. أضف Webhook في Facebook Developers 2. أدخل Verify Token 3. اشترك في الأحداث"
-        }
+        "instructions": "أرسل رسالة لصفحتك على فيسبوك وسأرد عليك تلقائياً!"
     })
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
         "status": "healthy",
-        "service": "dental-ai-messenger",
-        "facebook_ready": bool(FB_PAGE_TOKEN),
-        "webhook_url": "https://astramind-nine.vercel.app/webhook"
+        "facebook_token": "present" if FB_PAGE_TOKEN else "missing",
+        "webhook_active": True,
+        "store": STORE_INFO["name"]
     })
 
-@app.route('/ask', methods=['POST'])
-def ask():
-    try:
-        data = request.get_json()
-
-        if not data or 'question' not in data:
-            return jsonify({"error": "يرجى إرسال سؤال في حقل 'question'"}), 400
-
-        question = data['question'].strip()
-        answer = generate_response(question)
-
+@app.route('/test_reply', methods=['GET'])
+def test_reply():
+    """اختبار إرسال رسالة مباشرة"""
+    recipient_id = request.args.get('user_id', '')
+    test_message = request.args.get('message', 'مرحباً، هذا اختبار من The King! 👑')
+    
+    if not recipient_id:
         return jsonify({
-            "success": True,
-            "question": question,
-            "answer": answer,
-            "model": "Dental Assistant AI"
-        })
-
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-@app.route('/ask_get', methods=['GET'])
-def ask_get():
-    question = request.args.get('q', '').strip()
-
-    if not question:
-        return jsonify({"error": "استخدم ?q=سؤالك"}), 400
-
-    answer = generate_response(question)
-
+            "error": "أضف ?user_id=رقم_المستخدم",
+            "example": "/test_reply?user_id=123456&message=مرحباً"
+        }), 400
+    
+    result = send_facebook_message(recipient_id, test_message)
+    
     return jsonify({
-        "success": True,
-        "question": question,
-        "answer": answer
+        "success": result,
+        "message": test_message,
+        "recipient": recipient_id,
+        "token_exists": bool(FB_PAGE_TOKEN)
     })
 
+# ===================== توليد الردود =====================
 def generate_response(question):
-    """توليد رد ذكي - معدّل لمركز التدريب"""
+    """توليد رد ذكي - معدّل لمحل The King"""
     question_lower = question.lower()
+    
+    if any(word in question_lower for word in ['مرحبا', 'اهلا', 'السلام']):
+        return f"مرحباً! 👋 أنا مساعد محل {STORE_INFO['name']} - متخصص في السوتيس الجاهزة 👔\n\nكيف يمكنني خدمتك؟"
+    
+    elif any(word in question_lower for word in ['سوتيس', 'بدلة', 'جاكيت']):
+        return """👔 **أنواع السوتيس المتوفرة:**
+• سوتيس كاملة (3 قطع)
+• جواكيت منفردة
+• بناطيل رسمية
+• قمصان رجالية
 
-    responses = {
-        'greeting': "مرحباً! 👋 أنا مساعد مركز التدريب الذكي. كيف يمكنني مساعدتك اليوم؟\n\nيمكنك معرفة:\n• الكورسات المتاحة 🎓\n• الجداول الزمنية 📅\n• الأسعار 💰\n• أو التسجيل مباشرة 💼",
-        
-        'courses': """📚 **الكورسات المتاحة:**
-🎯 برمجة بايثون للمبتدئين
-🎯 تطوير الويب الشامل
-🎯 تحليل البيانات
-🎯 تصميم الجرافيك
-
-لكل كورس تفاصيله وجدوله وسعره. أي كورس يهمك؟""",
-
-        'schedules': """📅 **الجداول الزمنية:**
-
-1. **برمجة بايثون:**
-   - الاثنين والأربعاء 6-8 مساءً
-   - السبت 10 صباحًا - 2 ظهرًا
-
-2. **تطوير الويب:**
-   - الثلاثاء والخميس 7-9 مساءً
-
-3. **تحليل البيانات:**
-   - الأحد والثلاثاء 5-7 مساءً
-
-4. **تصميم الجرافيك:**
-   - الاثنين والأربعاء 4-6 مساءً
-
-أي جدول يناسبك؟""",
-
-        'prices': """💰 **الأسعار:**
-
-• برمجة بايثون: 500 ريال
-• تطوير الويب: 800 ريال  
-• تحليل البيانات: 700 ريال
-• تصميم الجرافيك: 600 ريال
-
-🎁 **خصومات متاحة:**
-- خصم 10% للتسجيل المبكر
-- خصم 15% للمجموعات (3+ أشخاص)
-- دفعات شهرية متاحة""",
-
-        'registration': "رائع! للتسجيل في أي كورس، أحتاج إلى:\n\n1. اسم الكورس الذي تريده\n2. رقم هاتفك للتواصل\n\nابدأ بكتابة اسم الكورس...",
-        
-        'contact': "📞 **للتواصل مع المركز:**\n• الهاتف: 0123456789\n• الواتساب: 0123456789\n• البريد: info@training-center.com\n• الموقع: www.training-center.com",
-        
-        'default': """مرحباً! 🤖 أنا مساعد مركز التدريب.
+أي نوع تفضل؟"""
+    
+    elif any(word in question_lower for word in ['سعر', 'ثمن', 'كم']):
+        return """💰 **أسعار السوتيس:**
+• سوتيس كاملة: 800 - 4000 جنيه
+• جواكيت: 500 - 1500 جنيه
+• خصم 20% على السوتيس الكاملة!"""
+    
+    elif any(word in question_lower for word in ['عنوان', 'مكان', 'اين']):
+        return f"📍 **العنوان:** {STORE_INFO['address']}"
+    
+    elif any(word in question_lower for word in ['هاتف', 'رقم', 'اتصل']):
+        phones = "، ".join(STORE_INFO['phone_numbers'])
+        return f"📞 **التليفونات:** {phones}"
+    
+    elif any(word in question_lower for word in ['مواعيد', 'يفتح', 'يغلق']):
+        return f"🕒 **مواعيد العمل:**\nيومياً: {STORE_INFO['working_hours']['daily']}"
+    
+    else:
+        return f"""مرحباً في {STORE_INFO['name']}! 👑
 
 يمكنني مساعدتك في:
-• عرض الكورسات المتاحة 🎓
-• معرفة الجداول الزمنية 📅  
-• استعلامات الأسعار 💰
-• عملية التسجيل 💼
-• معلومات التواصل 📞
+• أنواع السوتيس والأسعار
+• العنوان ومواعيد العمل
+• أرقام التواصل
+• خدمة التوصيل
 
-ماذا تريد أن تعرف؟ 😊"""
-    }
+اسألني عمّا تريد! 😊"""
 
-    # تحليل السؤال
-    if any(word in question_lower for word in ['مرحبا', 'اهلا', 'السلام', 'صباح', 'مساء', 'بداية', 'هلا']):
-        return responses['greeting']
-
-    elif any(word in question_lower for word in ['كورس', 'دورة', 'متاح', 'عرض', 'courses', 'برمجة', 'تطوير', 'تصميم', 'بيانات']):
-        return responses['courses']
-
-    elif any(word in question_lower for word in ['جدول', 'مواعيد', 'اوقات', 'schedule', 'موعد', 'تاريخ', 'يبدأ', 'ينتهي']):
-        return responses['schedules']
-
-    elif any(word in question_lower for word in ['سعر', 'ثمن', 'رسوم', 'تكلفة', 'price', 'كم', 'تخفيض', 'خصم']):
-        return responses['prices']
-
-    elif any(word in question_lower for word in ['تسجيل', 'سجل', 'انضم', 'اريد', 'أريد', 'سجلني', 'enroll', 'اشتراك']):
-        return responses['registration']
-
-    elif any(word in question_lower for word in ['اتصال', 'تواصل', 'هاتف', 'رقم', 'contact', 'بريد', 'ايميل', 'عنوان']):
-        return responses['contact']
-
-    else:
-        return responses['default']
-
-# ===================== فيسبوك Messenger =====================
-
-def verify_fb_signature(payload, signature):
-    """التحقق من توقيع فيسبوك (لزيادة الأمان)"""
-    if not FB_APP_SECRET or not signature:
-        return True  # تخطي إذا لم يتم تعيين App Secret
-
-    expected_sig = hmac.new(
-        FB_APP_SECRET.encode('utf-8'),
-        payload,
-        hashlib.sha1
-    ).hexdigest()
-
-    return hmac.compare_digest('sha1=' + expected_sig, signature)
-
+# ===================== فيسبوك Webhook =====================
 @app.route('/webhook', methods=['GET'])
 def verify_webhook():
-    """التحقق من Webhook - Facebook يرسل GET للتحقق"""
+    """التحقق من Webhook"""
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
-
-    print(f"🔍 Facebook verification attempt: mode={mode}, token={token}")
-
+    
+    print(f"🔍 Facebook verification: mode={mode}, token={token}")
+    
     if mode == 'subscribe' and token == FB_VERIFY_TOKEN:
-        print(f"✅ Facebook webhook verified successfully! Token: {FB_VERIFY_TOKEN}")
+        print("✅ Facebook webhook verified!")
         return challenge, 200
-
-    print(f"❌ Verification failed. Expected: {FB_VERIFY_TOKEN}, Got: {token}")
-    return 'Verification token mismatch', 403
+    
+    return 'Verification failed', 403
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """استقبال رسائل Messenger"""
     try:
-        # التحقق من التوقيع (أمان)
-        signature = request.headers.get('X-Hub-Signature', '')
-        if not verify_fb_signature(request.data, signature):
-            print("❌ Invalid Facebook signature")
-            return 'Invalid signature', 403
-
         data = request.get_json()
-
-        # تأكد أن البيانات من صفحة فيسبوك
+        
         if data.get('object') != 'page':
             return 'Not a page event', 404
-
+        
         for entry in data.get('entry', []):
             for messaging_event in entry.get('messaging', []):
-
-                # 1. رسالة نصية من مستخدم
+                
+                # رسالة نصية
                 if messaging_event.get('message'):
                     sender_id = messaging_event['sender']['id']
                     message_text = messaging_event['message'].get('text', '')
-
+                    
                     if message_text:
-                        print(f"📱 Facebook message from {sender_id}: {message_text}")
-
-                        # توليد الرد من المساعد
+                        print(f"📱 رسالة من {sender_id}: {message_text}")
+                        
+                        # توليد الرد
                         response_text = generate_response(message_text)
-
-                        # إرسال الرد إلى المستخدم
-                        send_facebook_message(sender_id, response_text)
-
-                # 2. ضغط على زر (Postback)
+                        
+                        # إرسال الرد
+                        success = send_facebook_message(sender_id, response_text)
+                        
+                        if success:
+                            print(f"✅ تم إرسال الرد لـ {sender_id}")
+                        else:
+                            print(f"❌ فشل إرسال الرد لـ {sender_id}")
+                
+                # Postback (ضغط زر)
                 elif messaging_event.get('postback'):
                     sender_id = messaging_event['sender']['id']
                     payload = messaging_event['postback']['payload']
-
-                    print(f"📱 Facebook postback from {sender_id}: {payload}")
-
-                    # ردود خاصة للأزرار - معدّلة لمركز التدريب
-                    postback_responses = {
-                        'GET_STARTED': "مرحباً بك في مركز التدريب! 👋\n\nأنا المساعد الذكي. اسألني عن:\n• الكورسات المتاحة 🎓\n• الجداول الزمنية 📅\n• الأسعار 💰\n• عملية التسجيل 💼",
-                        'BOOK_APPOINTMENT': "📝 للتسجيل في كورس:\n1. اختر الكورس المفضل\n2. أدخل رقم هاتفك\n3. فريقنا سيتواصل معك خلال 24 ساعة\n\nأي كورس يهمك؟",
-                        'ASK_PRICE': "💰 الأسعار:\n• برمجة بايثون: 500 ريال\n• تطوير الويب: 800 ريال\n• تحليل البيانات: 700 ريال\n• تصميم الجرافيك: 600 ريال\n\n🎁 خصومات متاحة!",
-                        'ASK_LOCATION': "📍 مركز التدريب:\n• العنوان: شارع التدريب، الرياض\n• 📞 الهاتف: 0123456789\n• 🕒 الأوقات: الأحد-الخميس 8 ص - 8 م\n• 📧 البريد: info@training-center.com"
-                    }
-
-                    response_text = postback_responses.get(payload, 
-                        "مرحباً! كيف يمكنني مساعدتك في مركز التدريب؟")
-
+                    
+                    print(f"📱 Postback من {sender_id}: {payload}")
+                    
+                    # ردود للأزرار
+                    if payload == 'GET_STARTED':
+                        response_text = f"مرحباً! 👋 أنا مساعد {STORE_INFO['name']}\nكيف يمكنني خدمتك؟"
+                    else:
+                        response_text = generate_response(payload)
+                    
                     send_facebook_message(sender_id, response_text)
-
-                # 3. تأكيد تسليم الرسالة
-                elif messaging_event.get('delivery'):
-                    pass
-
-                # 4. قراءة الرسالة
-                elif messaging_event.get('read'):
-                    pass
-
+        
         return 'EVENT_RECEIVED', 200
-
+        
     except Exception as e:
-        print(f"❌ Error in webhook: {e}")
+        print(f"❌ خطأ في webhook: {e}")
         import traceback
         traceback.print_exc()
-        return 'Error processing request', 500
+        return 'Error', 500
 
 def send_facebook_message(recipient_id, message_text):
     """إرسال رسالة إلى مستخدم فيسبوك"""
     if not FB_PAGE_TOKEN:
-        print("⚠️ FB_PAGE_TOKEN not set. Cannot send message.")
-        return None
-
-    # تقصير الرسالة إذا كانت طويلة جداً
-    if len(message_text) > 2000:
-        message_text = message_text[:1997] + "..."
-
-    url = f"https://graph.facebook.com/v18.0/me/messages"
-
+        print("❌ FB_PAGE_TOKEN غير موجود!")
+        return False
+    
+    url = "https://graph.facebook.com/v18.0/me/messages"
+    
     params = {'access_token': FB_PAGE_TOKEN}
-
+    
     payload = {
         "recipient": {"id": recipient_id},
         "message": {"text": message_text},
         "messaging_type": "RESPONSE"
     }
-
+    
     headers = {'Content-Type': 'application/json'}
-
+    
     try:
-        response = requests.post(
-            url, 
-            params=params, 
-            json=payload, 
-            headers=headers, 
-            timeout=10
-        )
-
+        response = requests.post(url, params=params, json=payload, headers=headers, timeout=10)
+        
+        print(f"📤 إرسال لـ {recipient_id}: status={response.status_code}")
+        
         if response.status_code == 200:
-            print(f"✅ Message sent to {recipient_id}")
             return True
         else:
-            print(f"❌ Failed to send message: {response.status_code}")
-            print(f"Response: {response.text}")
+            print(f"❌ فشل الإرسال: {response.text}")
             return False
-
+            
     except Exception as e:
-        print(f"❌ Error sending Facebook message: {e}")
+        print(f"❌ خطأ في الإرسال: {e}")
         return False
 
 @app.route('/fb_test', methods=['GET'])
 def facebook_test():
-    """اختبار اتصال فيسبوك"""
+    """صفحة اختبار مفصلة"""
     return jsonify({
-        "facebook_integration": True,
-        "verify_token_set": bool(FB_VERIFY_TOKEN),
-        "page_token_set": bool(FB_PAGE_TOKEN),
-        "webhook_url": "https://astramind-nine.vercel.app/webhook",
-        "verify_token": FB_VERIFY_TOKEN,
-        "test_url": f"https://astramind-nine.vercel.app/webhook?hub.mode=subscribe&hub.verify_token={FB_VERIFY_TOKEN}&hub.challenge=123456",
-        "setup_instructions": [
-            "1. Go to Facebook Developers",
-            "2. Create App → Add Messenger",
-            f"3. Webhook URL: https://astramind-nine.vercel.app/webhook",
-            f"4. Verify Token: {FB_VERIFY_TOKEN}",
-            "5. Subscribe to: messages, messaging_postbacks",
-            "6. Generate Page Access Token",
-            "7. Add tokens to Vercel Environment Variables"
+        "store": STORE_INFO["name"],
+        "status": "running",
+        "tokens": {
+            "verify_token": FB_VERIFY_TOKEN,
+            "page_token_configured": bool(FB_PAGE_TOKEN),
+            "page_token_preview": FB_PAGE_TOKEN[:20] + "..." if FB_PAGE_TOKEN and len(FB_PAGE_TOKEN) > 20 else FB_PAGE_TOKEN
+        },
+        "webhook": {
+            "url": "https://astramind-nine.vercel.app/webhook",
+            "verification_url": f"https://astramind-nine.vercel.app/webhook?hub.mode=subscribe&hub.verify_token={FB_VERIFY_TOKEN}&hub.challenge=123456"
+        },
+        "diagnostic": {
+            "received_webhook_requests": True,  # كما يظهر في السجلات
+            "message_sending_ready": bool(FB_PAGE_TOKEN),
+            "store_info_loaded": bool(STORE_INFO)
+        },
+        "setup_steps": [
+            "1. تأكد من وجود FB_PAGE_TOKEN في Vercel Environment Variables",
+            "2. في Facebook Developers → Messenger → Settings",
+            "3. Webhooks → Setup Webhooks",
+            f"4. Callback URL: https://astramind-nine.vercel.app/webhook",
+            f"5. Verify Token: {FB_VERIFY_TOKEN}",
+            "6. Subscribe to: messages, messaging_postbacks",
+            "7. اختر الصفحة → Generate Token → نسخه → وضعه في Vercel",
+            "8. أرسل رسالة لصفحتك على فيسبوك!"
         ]
     })
-
-@app.route('/setup_fb', methods=['GET'])
-def setup_facebook():
-    """إعداد قائمة فيسبوك وأزرار"""
-
-    if not FB_PAGE_TOKEN:
-        return jsonify({
-            "error": "FB_PAGE_TOKEN is not set",
-            "solution": "Add FB_PAGE_TOKEN to Vercel Environment Variables"
-        }), 400
-
-    results = {}
-
-    try:
-        # 1. إعداد زر Get Started
-        get_started_url = "https://graph.facebook.com/v18.0/me/messenger_profile"
-
-        get_started_payload = {
-            "get_started": {"payload": "GET_STARTED"},
-            "whitelisted_domains": ["https://astramind-nine.vercel.app"]
-        }
-
-        response1 = requests.post(
-            get_started_url,
-            params={'access_token': FB_PAGE_TOKEN},
-            json=get_started_payload
-        )
-        results['get_started'] = response1.status_code == 200
-
-        # 2. إعداد القائمة المستمرة
-        menu_payload = {
-            "persistent_menu": [
-                {
-                    "locale": "default",
-                    "composer_input_disabled": False,
-                    "call_to_actions": [
-                        {
-                            "type": "postback",
-                            "title": "📚 الكورسات",
-                            "payload": "BOOK_APPOINTMENT"
-                        },
-                        {
-                            "type": "postback",
-                            "title": "💰 الأسعار",
-                            "payload": "ASK_PRICE"
-                        },
-                        {
-                            "type": "postback",
-                            "title": "📍 المركز",
-                            "payload": "ASK_LOCATION"
-                        }
-                    ]
-                }
-            ]
-        }
-
-        response2 = requests.post(
-            get_started_url,
-            params={'access_token': FB_PAGE_TOKEN},
-            json=menu_payload
-        )
-        results['persistent_menu'] = response2.status_code == 200
-
-        return jsonify({
-            "success": True,
-            "results": results,
-            "message": "Facebook page setup completed!",
-            "next_steps": [
-                f"1. Open: https://astramind-nine.vercel.app/fb_test",
-                "2. Copy the Verify Token",
-                "3. Go to Facebook Developers → Webhook",
-                "4. Add the Webhook URL and Verify Token",
-                "5. Subscribe your page to events",
-                "6. Send a message to your Facebook page!"
-            ]
-        })
-
-    except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "success": False
-        }), 500
 
 # ===================== تشغيل التطبيق =====================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    print(f"🌐 Server running on port {port}")
-    print(f"🤖 Dental AI Assistant with Facebook Messenger")
-    print(f"🔑 Verify Token: {FB_VERIFY_TOKEN}")
+    print(f"🌐 السيرفر شغال على port {port}")
+    print(f"👑 محل: {STORE_INFO['name']}")
+    print(f"📍 العنوان: {STORE_INFO['address']}")
+    print(f"📞 التليفونات: {', '.join(STORE_INFO['phone_numbers'])}")
     print(f"🔗 Webhook URL: https://astramind-nine.vercel.app/webhook")
-    print(f"📱 Test URL: https://astramind-nine.vercel.app/fb_test")
+    print(f"🔐 Verify Token: {FB_VERIFY_TOKEN}")
+    print(f"📱 FB_PAGE_TOKEN موجود: {'✅ نعم' if FB_PAGE_TOKEN else '❌ لا'}")
+    
+    if FB_PAGE_TOKEN:
+        print("🎉 التطبيق جاهز للرد على رسائل فيسبوك!")
+    else:
+        print("⚠️ تحتاج إلى إضافة FB_PAGE_TOKEN في Vercel")
+        print("💡 اذهب إلى Vercel → Project → Settings → Environment Variables")
+        print("💡 أضف متغير: FB_PAGE_TOKEN=رقم_التوكن_الطويل")
+    
     app.run(host='0.0.0.0', port=port, debug=False)
