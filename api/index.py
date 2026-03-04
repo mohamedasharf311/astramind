@@ -50,7 +50,8 @@ def get_user_session(user_id):
             "first_seen": time.time(),
             "auto_reply_enabled": True,  # البوت شغال افتراضياً
             "handed_over_to_human": False,  # اتمسلم لموظف ولا لأ
-            "last_interaction": time.time()
+            "last_interaction": time.time(),
+            "first_interaction": True
         }
     return user_sessions[user_id]
 
@@ -65,7 +66,6 @@ def disable_auto_reply(user_id):
 def is_auto_reply_enabled(user_id):
     """بتتأكد لو الرد التلقائي شغال للمستخدم ده"""
     session = get_user_session(user_id)
-    # لو معداش عليها كتير (اختياري)
     return session.get("auto_reply_enabled", True)
 
 # ===================== المساعد الأساسي =====================
@@ -100,6 +100,7 @@ def reset_user(user_id):
     if user_id in user_sessions:
         user_sessions[user_id]["auto_reply_enabled"] = True
         user_sessions[user_id]["handed_over_to_human"] = False
+        user_sessions[user_id]["first_interaction"] = True
         return jsonify({"success": True, "message": f"User {user_id} reset"})
     return jsonify({"success": False, "message": "User not found"})
 
@@ -158,24 +159,21 @@ def generate_response(question, user_id):
     """
     question_lower = question.lower().strip()
     
-    # ============ التحقق من كلمات تحويل لموظف بشري ============
-    human_agent_keywords = [
-        'خدمة العملاء', 'كلم موظف', 'موظف', 'محادثة', 'support', 'customer',
-        'الدعم', 'انسان', 'بشري', 'حقيقي', 'حد من الصفحة', 'رد بشري',
-        'human', 'agent', 'representative', 'موظف بشري', 'انسان حقيقي',
-        'عايز اتكلم مع حد', 'كلمني موظف', 'كلم مسؤول', 'الادمن', 'المسؤول'
-    ]
-    
-    # لو المستخدم طلب التحدث مع موظف بشري
-    if any(keyword in question_lower for keyword in human_agent_keywords):
+    # ============ التحقق من كلمات تحويل لموظف بشري (أي حاجة فيها عملاء/العملا) ============
+    # دي أهم جزء: بتكشف أي كلمة فيها عملاء أو العملا أو العملاء
+    if ('عملاء' in question_lower or 
+        'العملا' in question_lower or 
+        'العملاء' in question_lower or
+        'خدمة' in question_lower and any(x in question_lower for x in ['عملا', 'عملاء', 'العملاء'])):
+        
         # نعطل الرد التلقائي نهائياً للمستخدم ده
         disable_auto_reply(user_id)
-        print(f"🟡 User {user_id} requested human agent. Auto-reply disabled.")
+        print(f"🟡 User {user_id} requested customer service. Auto-reply disabled permanently.")
         
         # نرسل رسالة تأكيد إنه هيتحول لموظف
         return f"""👤 **تم تحويلك إلى خدمة العملاء البشرية**
 
-شكراً لتواصلك مع {STORE_INFO['name']}. تم إيقاف الردود التلقائية وسيتم الرد عليك شخصياً من أحد ممثلي خدمة العملاء في أقرب وقت.
+شكراً لتواصلك مع {STORE_INFO['name']}. تم إيقاف الردود التلقائية نهائياً وسيتم الرد عليك شخصياً من أحد ممثلي خدمة العملاء في أقرب وقت.
 
 ⏳ **مدة الانتظار المتوقعة:** 5-15 دقيقة
 
@@ -187,7 +185,7 @@ def generate_response(question, user_id):
     # لو الرد التلقائي معطل للمستخدم ده، منبعتهاش أي رد
     if not is_auto_reply_enabled(user_id):
         print(f"⏩ Auto-reply disabled for user {user_id}. Message will appear in inbox.")
-        return None  # منردش على الرسالة خالص
+        return None
     
     # ============ للمستخدمين الجدد ============
     session = get_user_session(user_id)
@@ -375,7 +373,7 @@ def facebook_test():
         "webhook_url": "https://astramind-two.vercel.app/webhook",
         "verify_token": FB_VERIFY_TOKEN,
         "status": "✅ جاهز",
-        "auto_reply": "✓ الترحيب للمستخدمين الجدد\n✓ الردود على العنوان، التواصل، المواعيد\n✗ يتوقف نهائياً عندما:\n  - يطلب المستخدم 'خدمة العملاء' أو 'انسان حقيقي'\n  - تبدأ أنت بالرد على المستخدم",
+        "auto_reply": "✓ الترحيب للمستخدمين الجدد\n✓ الردود على العنوان، التواصل، المواعيد\n✗ يتوقف نهائياً عندما:\n  - يطلب المستخدم أي كلمة فيها 'عملاء' أو 'العملا' أو 'العملاء'\n  - تبدأ أنت بالرد على المستخدم",
         "active_sessions": len(user_sessions)
     })
 
@@ -387,6 +385,6 @@ if __name__ == '__main__':
     print("🚀 Auto-reply rules:")
     print("  ✓ New users: Welcome message")
     print("  ✓ Address, contact, hours: Auto-reply")
-    print("  ✗ When user asks for 'human' or 'customer service': Disable auto-reply permanently")
+    print("  ✗ When user types anything containing 'عملاء', 'العملا', or 'العملاء': Disable auto-reply permanently")
     print("  ✗ When page admin replies: Disable auto-reply permanently")
     app.run(host='0.0.0.0', port=port, debug=False)
