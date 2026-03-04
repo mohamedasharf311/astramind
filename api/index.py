@@ -36,22 +36,37 @@ STORE_INFO = {
         "قمصان رجالية 👕",
         "ربطات عنق وتي شيرتات 🎀",
         "إكسسوارات رجالية 💼"
-    ],
-    "customer_service": "خدمة العملاء: اضغط على الرقم 01000000000 (واتساب)"
+    ]
 }
 
-# ===================== جلسات المستخدمين (لتذكر من تفاعل مع البوت) =====================
-# هذا قاموس بسيط في الذاكرة. ملاحظة: سيفقد البيانات عند إعادة تشغيل التطبيق.
+# ===================== جلسات المستخدمين =====================
+# هنتتبع حالة كل مستخدم
 user_sessions = {}
 
-# دالة للتحقق مما إذا كان المستخدم جديدًا أم لا
-def is_new_user(user_id):
-    """تتحقق مما إذا كان المستخدم قد تفاعل مع البوت من قبل."""
+def get_user_session(user_id):
+    """ترجع بيانات جلسة المستخدم، أو تنشئها لو مش موجودة"""
     if user_id not in user_sessions:
-        # مستخدم جديد، نقوم بتسجيله وإرجاع True
-        user_sessions[user_id] = {"first_seen": time.time(), "has_interacted": True}
-        return True
-    return False
+        user_sessions[user_id] = {
+            "first_seen": time.time(),
+            "auto_reply_enabled": True,  # البوت شغال افتراضياً
+            "handed_over_to_human": False,  # اتمسلم لموظف ولا لأ
+            "last_interaction": time.time()
+        }
+    return user_sessions[user_id]
+
+def disable_auto_reply(user_id):
+    """بتعطل الرد التلقائي للمستخدم ده"""
+    session = get_user_session(user_id)
+    session["auto_reply_enabled"] = False
+    session["handed_over_to_human"] = True
+    session["last_interaction"] = time.time()
+    print(f"🔴 Auto-reply disabled for user {user_id}")
+
+def is_auto_reply_enabled(user_id):
+    """بتتأكد لو الرد التلقائي شغال للمستخدم ده"""
+    session = get_user_session(user_id)
+    # لو معداش عليها كتير (اختياري)
+    return session.get("auto_reply_enabled", True)
 
 # ===================== المساعد الأساسي =====================
 @app.route('/')
@@ -65,7 +80,8 @@ def home():
             "/ask": "POST - طرح الأسئلة",
             "/ask_get": "GET - طرح الأسئلة (بسيط)",
             "/webhook": "GET/POST - فيسبوك Messenger",
-            "/fb_test": "GET - اختبار اتصال فيسبوك"
+            "/fb_test": "GET - اختبار اتصال فيسبوك",
+            "/reset_user/:id": "GET - إعادة تفعيل البوت لمستخدم (للاختبار)"
         }
     })
 
@@ -78,6 +94,15 @@ def health():
         "active_sessions": len(user_sessions)
     })
 
+@app.route('/reset_user/<user_id>', methods=['GET'])
+def reset_user(user_id):
+    """للاختبار: إعادة تفعيل البوت لمستخدم معين"""
+    if user_id in user_sessions:
+        user_sessions[user_id]["auto_reply_enabled"] = True
+        user_sessions[user_id]["handed_over_to_human"] = False
+        return jsonify({"success": True, "message": f"User {user_id} reset"})
+    return jsonify({"success": False, "message": "User not found"})
+
 @app.route('/ask', methods=['POST'])
 def ask():
     try:
@@ -87,7 +112,6 @@ def ask():
         if not question:
             return jsonify({"error": "يرجى إرسال سؤال"}), 400
             
-        # هذا المسار للاختبار، لا يحتاج لحالة مستخدم
         answer = generate_response_for_test(question)
         
         return jsonify({
@@ -106,7 +130,6 @@ def ask_get():
     if not question:
         return jsonify({"error": "استخدم ?q=سؤالك"}), 400
         
-    # هذا المسار للاختبار، لا يحتاج لحالة مستخدم
     answer = generate_response_for_test(question)
     
     return jsonify({
@@ -116,10 +139,9 @@ def ask_get():
     })
 
 def generate_response_for_test(question):
-    """دالة للاختبار فقط (بدون حالة مستخدم)"""
+    """دالة للاختبار فقط"""
     question_lower = question.lower().strip()
     
-    # نفس منطق الردود ولكن بدون التحقق من حالة المستخدم
     address_keywords = ['عنوان', 'مكان', 'الفرع', 'اين', 'موقع']
     if any(keyword in question_lower for keyword in address_keywords):
         return f"📍 العنوان: {STORE_INFO['address']}"
@@ -132,14 +154,47 @@ def generate_response_for_test(question):
 
 def generate_response(question, user_id):
     """
-    توليد رد ذكي مع الأخذ في الاعتبار حالة المستخدم (جديد أم لا).
+    توليد رد ذكي مع الأخذ في الاعتبار حالة المستخدم
     """
     question_lower = question.lower().strip()
-    new_user = is_new_user(user_id)
     
-    # ============ التحية للمستخدمين الجدد فقط ============
-    # إذا كان المستخدم جديداً، نرسل له الترحيب والمعلومات الأساسية
-    if new_user:
+    # ============ التحقق من كلمات تحويل لموظف بشري ============
+    human_agent_keywords = [
+        'خدمة العملاء', 'كلم موظف', 'موظف', 'محادثة', 'support', 'customer',
+        'الدعم', 'انسان', 'بشري', 'حقيقي', 'حد من الصفحة', 'رد بشري',
+        'human', 'agent', 'representative', 'موظف بشري', 'انسان حقيقي',
+        'عايز اتكلم مع حد', 'كلمني موظف', 'كلم مسؤول', 'الادمن', 'المسؤول'
+    ]
+    
+    # لو المستخدم طلب التحدث مع موظف بشري
+    if any(keyword in question_lower for keyword in human_agent_keywords):
+        # نعطل الرد التلقائي نهائياً للمستخدم ده
+        disable_auto_reply(user_id)
+        print(f"🟡 User {user_id} requested human agent. Auto-reply disabled.")
+        
+        # نرسل رسالة تأكيد إنه هيتحول لموظف
+        return f"""👤 **تم تحويلك إلى خدمة العملاء البشرية**
+
+شكراً لتواصلك مع {STORE_INFO['name']}. تم إيقاف الردود التلقائية وسيتم الرد عليك شخصياً من أحد ممثلي خدمة العملاء في أقرب وقت.
+
+⏳ **مدة الانتظار المتوقعة:** 5-15 دقيقة
+
+📞 للتواصل السريع عبر واتساب: {STORE_INFO['whatsapp_numbers'][0]}
+
+**ملاحظة:** لن تصلك أي ردود تلقائية بعد الآن. رسائلك القادمة ستظهر مباشرة في صندوق الوارد لخدمة العملاء."""
+    
+    # ============ التحقق من حالة المستخدم ============
+    # لو الرد التلقائي معطل للمستخدم ده، منبعتهاش أي رد
+    if not is_auto_reply_enabled(user_id):
+        print(f"⏩ Auto-reply disabled for user {user_id}. Message will appear in inbox.")
+        return None  # منردش على الرسالة خالص
+    
+    # ============ للمستخدمين الجدد ============
+    session = get_user_session(user_id)
+    is_new = session.get("first_interaction", True)
+    
+    if is_new:
+        session["first_interaction"] = False
         return f"""👋 مرحباً بك في **{STORE_INFO['name']}**! أنا المساعد الذكي.
 
 **معلومات المحل:**
@@ -151,13 +206,11 @@ def generate_response(question, user_id):
 🔹 العنوان - اكتب "العنوان"
 🔹 أرقام التواصل - اكتب "التواصل"
 🔹 مواعيد العمل - اكتب "المواعيد"
-🔹 **للتحدث مع خدمة العملاء** - اكتب "خدمة العملاء"
+🔹 **للتحدث مع موظف بشري** - اكتب "خدمة العملاء" أو "انسان حقيقي"
 
 كيف أقدر أخدمك؟ 😊"""
     
-    # ============ للمستخدمين القدامى، نتعامل مع الاستفسارات بشكل طبيعي ============
-    
-    # العنوان
+    # ============ العنوان ============
     address_keywords = ['عنوان', 'مكان', 'الفرع', 'اين', 'موقع', 'address', 'location', 'وين']
     if any(keyword in question_lower for keyword in address_keywords):
         return f"""📍 **عنوان {STORE_INFO['name']}:**
@@ -172,7 +225,7 @@ def generate_response(question, user_id):
 🕒 **مواعيد العمل:**
 يومياً: {STORE_INFO['working_hours']['daily']}"""
 
-    # التواصل
+    # ============ التواصل ============
     contact_keywords = ['تليفون', 'هاتف', 'اتصل', 'رقم', 'contact', 'واتساب', 'whatsapp']
     if any(keyword in question_lower for keyword in contact_keywords):
         phones = "\n".join([f"📞 {phone}" for phone in STORE_INFO['phone_numbers']])
@@ -186,7 +239,7 @@ def generate_response(question, user_id):
 
 📍 **العنوان:** {STORE_INFO['address']}"""
 
-    # مواعيد العمل
+    # ============ مواعيد العمل ============
     hours_keywords = ['مواعيد', 'يفتح', 'يغلق', 'اوقات', 'open', 'time', 'ساعات']
     if any(keyword in question_lower for keyword in hours_keywords):
         return f"""🕒 **مواعيد العمل:**
@@ -196,19 +249,7 @@ def generate_response(question, user_id):
 
 ✨ نستقبلكم طوال أيام الأسبوع"""
 
-    # ============ خدمة العملاء (مهم: هنا بنرد برسالة فقط، والرسالة الأصلية بتظهر للعميل) ============
-    customer_service_keywords = ['خدمة العملاء', 'كلم موظف', 'موظف', 'محادثة', 'support', 'customer', 'الدعم']
-    if any(keyword in question_lower for keyword in customer_service_keywords):
-        return f"""👤 **تم تحويلك إلى خدمة العملاء**
-
-شكراً لتواصلك مع {STORE_INFO['name']}. سيتم الرد عليك من أحد ممثلي خدمة العملاء في أقرب وقت.
-
-⏳ **مدة الانتظار المتوقعة:** 5-15 دقيقة
-
-📞 للتواصل السريع عبر واتساب: {STORE_INFO['whatsapp_numbers'][0]}"""
-
-    # ============ أي استفسار آخر - نرد بشكل طبيعي ============
-    # هنا بنرد على أي سؤال تاني (عشان كده شيلنا return None)
+    # ============ أي استفسار آخر ============
     return f"""👋 مرحباً في **{STORE_INFO['name']}**!
 
 للحصول على المساعدة، اختر أحد الخيارات:
@@ -216,7 +257,7 @@ def generate_response(question, user_id):
 📍 اكتب "العنوان" لمعرفة موقعنا
 📞 اكتب "التواصل" لأرقام التليفون
 🕒 اكتب "المواعيد" لمعرفة أوقات العمل
-👤 اكتب "خدمة العملاء" للتحدث مع موظف
+👤 اكتب "خدمة العملاء" أو "انسان حقيقي" للتحدث مع موظف
 
 كيف أقدر أساعدك؟ 😊"""
 
@@ -260,9 +301,20 @@ def webhook():
         for entry in data.get('entry', []):
             for messaging_event in entry.get('messaging', []):
 
-                if messaging_event.get('message'):
-                    sender_id = messaging_event['sender']['id']
-                    message_text = messaging_event['message'].get('text', '')
+                # ✅ هنا الأهم: بنتأكد لو الرسالة من الصفحة نفسها (أي أنا برد)
+                # فيسبوك بتبعت حاجة إسمها is_echo عشان تقول دي رسالة من البوت أو من الصفحة
+                message = messaging_event.get('message', {})
+                sender_id = messaging_event['sender']['id']
+                
+                # لو دي رسالة من الصفحة (أنا الي برد)، بنعطل الرد التلقائي للمستخدم ده
+                if message.get('is_echo'):
+                    print(f"🔄 Echo message detected (page replied). Disabling auto-reply for {sender_id}")
+                    disable_auto_reply(sender_id)
+                    continue
+                
+                # لو في رسالة عادية من المستخدم
+                if message:
+                    message_text = message.get('text', '')
 
                     if message_text:
                         print(f"📱 Facebook message from {sender_id}: {message_text}")
@@ -270,7 +322,7 @@ def webhook():
                         # نمرر user_id للدالة
                         response_text = generate_response(message_text, sender_id)
                         
-                        # ✅ الأهم: بس نبعتها لو مش None
+                        # نبعتها لو مش None
                         if response_text is not None:
                             send_facebook_message(sender_id, response_text)
                             print(f"✅ تم إرسال رد تلقائي للرسالة: {message_text}")
@@ -323,8 +375,7 @@ def facebook_test():
         "webhook_url": "https://astramind-two.vercel.app/webhook",
         "verify_token": FB_VERIFY_TOKEN,
         "status": "✅ جاهز",
-        "auto_reply": "الترحيب للمستخدمين الجدد فقط، ثم الردود التلقائية للعنوان والتواصل والمواعيد",
-        "customer_service": "رسائل خدمة العملاء يرد عليها البوت برسالة تأكيد ثم تظهر في صندوق الوارد",
+        "auto_reply": "✓ الترحيب للمستخدمين الجدد\n✓ الردود على العنوان، التواصل، المواعيد\n✗ يتوقف نهائياً عندما:\n  - يطلب المستخدم 'خدمة العملاء' أو 'انسان حقيقي'\n  - تبدأ أنت بالرد على المستخدم",
         "active_sessions": len(user_sessions)
     })
 
@@ -333,10 +384,9 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     print(f"🌐 Server running on port {port}")
     print(f"👑 Store: {STORE_INFO['name']}")
-    print(f"📍 Address: {STORE_INFO['address']}")
-    print(f"📞 Phones: {', '.join(STORE_INFO['phone_numbers'])}")
-    print(f"🔗 Webhook: https://astramind-two.vercel.app/webhook")
-    print(f"🔐 Verify Token: {FB_VERIFY_TOKEN}")
-    print(f"🤖 Auto-reply: الترحيب للمستخدمين الجدد فقط، ثم الردود التلقائية للعنوان والتواصل والمواعيد")
-    print(f"👤 Customer service: بيرد برسالة تأكيد ثم تظهر في inbox")
+    print("🚀 Auto-reply rules:")
+    print("  ✓ New users: Welcome message")
+    print("  ✓ Address, contact, hours: Auto-reply")
+    print("  ✗ When user asks for 'human' or 'customer service': Disable auto-reply permanently")
+    print("  ✗ When page admin replies: Disable auto-reply permanently")
     app.run(host='0.0.0.0', port=port, debug=False)
