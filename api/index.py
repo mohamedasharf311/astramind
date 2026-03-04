@@ -155,30 +155,21 @@ def generate_response(question):
 
 ✨ نستقبلكم طوال أيام الأسبوع"""
 
-    # ============ خدمة العملاء (الأهم) ============
-    customer_service_keywords = ['خدمة العملاء', 'كلم موظف', 'موظف', 'محادثة', 'support', 'customer']
+    # ============ خدمة العملاء (بيرد برسالة إنه حولك، وبرضو الرسالة بتظهر للعميل) ============
+    customer_service_keywords = ['خدمة العملاء', 'كلم موظف', 'موظف', 'محادثة', 'support', 'customer', 'الدعم']
     if any(keyword in question_lower for keyword in customer_service_keywords):
         return f"""👤 **تم تحويلك إلى خدمة العملاء**
 
-سيتم تحويل رسالتك إلى فريق الدعم البشري للرد عليك في أسرع وقت.
+شكراً لتواصلك مع {STORE_INFO['name']}. تم استلام طلبك وسيتم الرد عليك من أحد ممثلي خدمة العملاء في أقرب وقت ممكن.
 
-⏳ **وقت الانتظار المتوقع:** 5-10 دقائق
+⏳ **مدة الانتظار المتوقعة:** 5-15 دقيقة
 
-📞 يمكنك التواصل المباشر عبر واتساب: {STORE_INFO['whatsapp_numbers'][0]}
+📞 للتواصل السريع عبر واتساب: {STORE_INFO['whatsapp_numbers'][0]}
 
-**ملاحظة:** رسالتك الحالية تم حفظها وسيرد عليك موظف مباشرة."""
+**ملاحظة:** سيتم حفظ رسالتك الحالية وسيرد عليك موظف خدمة العملاء مباشرة."""
 
-    # ============ الرد الافتراضي مع عرض الخيارات ============
-    return f"""👋 مرحباً في **{STORE_INFO['name']}**!
-
-للحصول على المساعدة، اختر أحد الخيارات:
-
-📍 اكتب "العنوان" لمعرفة موقعنا
-📞 اكتب "التواصل" لأرقام التليفون
-🕒 اكتب "المواعيد" لمعرفة أوقات العمل
-👤 اكتب "خدمة العملاء" للتحدث مع موظف
-
-كيف أقدر أساعدك؟ 😊"""
+    # ============ أي استفسار آخر (مش بنرد عشان يظهر للعميل) ============
+    return None  # الرجوع None يعني مش هنرد على الرسالة
 
 # ===================== فيسبوك Messenger =====================
 
@@ -227,7 +218,13 @@ def webhook():
                     if message_text:
                         print(f"📱 Facebook message from {sender_id}: {message_text}")
                         response_text = generate_response(message_text)
-                        send_facebook_message(sender_id, response_text)
+                        
+                        # ✅ الأهم: بس نبعتها لو مش None
+                        if response_text is not None:
+                            send_facebook_message(sender_id, response_text)
+                            print(f"✅ تم إرسال رد تلقائي للرسالة: {message_text}")
+                        else:
+                            print(f"⏩ تم تخطي الرد التلقائي للرسالة: {message_text} (ستظهر في صندوق الوارد)")
 
         return 'EVENT_RECEIVED', 200
 
@@ -274,7 +271,9 @@ def facebook_test():
         "hours": STORE_INFO["working_hours"],
         "webhook_url": "https://astramind-two.vercel.app/webhook",
         "verify_token": FB_VERIFY_TOKEN,
-        "status": "✅ جاهز"
+        "status": "✅ جاهز",
+        "auto_reply": "الردود التلقائية تعمل للعنوان، التواصل، المواعيد، والتحية فقط",
+        "customer_service": "رسائل خدمة العملاء وأي استفسار آخر تظهر في صندوق الوارد"
     })
 
 # ===================== تشغيل التطبيق =====================
@@ -282,4 +281,10 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     print(f"🌐 Server running on port {port}")
     print(f"👑 Store: {STORE_INFO['name']}")
+    print(f"📍 Address: {STORE_INFO['address']}")
+    print(f"📞 Phones: {', '.join(STORE_INFO['phone_numbers'])}")
+    print(f"🔗 Webhook: https://astramind-two.vercel.app/webhook")
+    print(f"🔐 Verify Token: {FB_VERIFY_TOKEN}")
+    print(f"🤖 Auto-reply: العنوان، التواصل، المواعيد، التحية فقط")
+    print(f"👤 Customer service & Other questions: تظهر في inbox")
     app.run(host='0.0.0.0', port=port, debug=False)
